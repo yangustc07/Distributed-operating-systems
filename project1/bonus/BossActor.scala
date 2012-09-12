@@ -16,7 +16,6 @@ class BossActor(N: Long, k: Long, np: Int) extends Actor {
     var done: Int = 0
     for (j <- 1 to nparts) {
       val remoteWorker = select(Node("lin114-"+"%02d".format(j-1)+".cise.ufl.edu", 9010), 'worker)
-      println(remoteWorker)
       remoteWorker ! (a1, 1+(j-1)*N/nparts, N/nparts, k)
     }
     loop {
