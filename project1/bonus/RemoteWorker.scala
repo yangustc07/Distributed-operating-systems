@@ -4,6 +4,9 @@ import scala.actors.Actor._
 import scala.actors.remote._
 import scala.actors.remote.RemoteActor._
 
+case class Solution(root: Long, beg: Long)
+case class FinishSignal(signal: Int)
+
 class RemoteWorker extends Actor {
   def act() {
     react {
@@ -15,15 +18,15 @@ class RemoteWorker extends Actor {
           val ai = a1 + (i-1)*(i+k)*k
           val root = round(sqrt(ai))
           if(ai == root*root)
-            boss ! (root, i) // finds a solution
+            boss ! Solution(root toLong, i toLong) // finds a solution
         }
-        boss ! 1l // indicating finish
+        boss ! FinishSignal(1) // indicating finish
     }
   }
 }
 
 class RemoteBoss extends Actor {
-  var boss = select(Node("lin114-10.cise.ufl.edu", 9000), 'boss)
+  var boss: AbstractActor = null
   private val nparts = 4
   def act() {
     alive(9010)
@@ -39,9 +42,9 @@ class RemoteBoss extends Actor {
             worker.start
             worker ! (a1, b+(j-1)*(e-b+1)/nparts, b+j*(e-b+1)/nparts, k, self)
           }
-        case (root: Long, beg: Long) =>
+        case Solution(root, beg) =>
           boss ! (root, beg)
-        case (fin: Long) =>
+        case FinishSignal(fin) =>
           done += 1
           if (done >= nparts)
             boss ! 1l
@@ -52,5 +55,5 @@ class RemoteBoss extends Actor {
 }
 
 object RemoteWorker extends App {
-  (new RemoteWorker).start
+  (new RemoteBoss).start
 }
