@@ -6,6 +6,7 @@ import scala.actors.remote.RemoteActor._
 class Boss(N: Long, k: Long, np: Int) extends Actor {
   require(np<=10)
   private val nparts = np  // # of subproblems
+  private val subparts = 4
   private def format(root: Long, beg: Long): String = // formatting output string
     ""+root+"^2 = "+(for(i <- beg.toInt to (beg+k-1).toInt) yield ""+i+"^2").mkString("+")
 
@@ -23,7 +24,7 @@ class Boss(N: Long, k: Long, np: Int) extends Actor {
           println(format(root,beg))
         case (fin: Long) => // record the number of finished workers
           done += 1
-          if (done >= nparts)
+          if (done >= nparts*subparts)
             exit()
       }
     }
