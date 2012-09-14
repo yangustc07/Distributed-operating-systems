@@ -27,7 +27,6 @@ class RemoteBoss extends Actor {
   def act() {
     alive(9010)
     register('remoteboss, self)
-    var done: Int = 0
     loop {
       react {
         case (b: Long, e: Long, k: Long) =>
