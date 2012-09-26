@@ -1,24 +1,28 @@
 import scala.actors._
+import scala.actors.Actor._
 import scala.util.Random
 
 class Node extends Actor {
   private var id: Int = 0
-  private var neighbors: Array[Node] = null
   private var count: Int = 0
+  private var neighbors: Array[Node] = null
   private val rand = new Random
   private def randomNeighbor: Node = neighbors(rand.nextInt(neighbors.length))
+  private object nodeSender extends Actor {
+    def act() {
+      loop { randomNeighbor ! "rumor" }
+    }
+  }
   def act() {
     loop {
-      if(count>0) randomNeighbor ! "start"  // count>0 means having been notified
       react {
         case (i: Int, n: Array[Node]) =>
           id = i; neighbors = n
-          //set different seeds so that different nodes generate different random number sequences
           rand.setSeed(System.currentTimeMillis() ^ neighbors.hashCode toLong)
-        case msg: String =>
-          count += 1
+        case "rumor" => count += 1
           println(""+id+": "+count)
           if(count>=10) exit
+          nodeSender.start
       }
     }
   }
@@ -30,9 +34,9 @@ abstract class NetworkBuilder(val numNodes: Int) extends Actor {
   def randomNode: Node = nodes(rand.nextInt(nodes.length))
   def neighbors(x: Int): Array[Node]    // implemented by different topologies
   def act() {
-    nodes foreach(_.start)
+    nodes foreach(_ start)
     Array.range(0, numNodes) foreach (x => (nodes(x) ! (x,neighbors(x))))
-    randomNode ! "start"
+    randomNode ! "rumor"
   }
 }
 
@@ -60,5 +64,5 @@ class ImperfectGrid(rows: Int, cols: Int) extends Grid(rows, cols) {
 }
 
 object project2 extends App {
-  new Grid(10,10) start
+  new Grid(3,3) start
 }
