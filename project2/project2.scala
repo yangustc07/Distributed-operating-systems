@@ -2,41 +2,51 @@ import scala.actors._
 import scala.actors.Actor._
 import scala.util.Random
 
-class Node extends Actor {
+sealed trait Message
+case object Looping extends Message
+case object Rumor extends Message
+case object Stop extends Message
+case class PartialSum(val s: Double, val w: Double) extends Message
+
+abstract class Node extends Actor {
   private var id: Int = 0
-  private var count: Int = 0
   private var neighbors: Array[Node] = null
   private val rand = new Random
-  private def randomNeighbor: Node = neighbors(rand.nextInt(neighbors.length))
-  private object nodeSender extends Actor {
-    def act() {
-      loop { randomNeighbor ! "rumor" }
-    }
+  def randomNeighbor: Node = neighbors(rand.nextInt(neighbors.length))
+  def init(i: Int, n: Array[Node]) = {
+    id = i; neighbors = n
+    rand.setSeed(System.currentTimeMillis() ^ neighbors.hashCode toLong)
   }
+}
+
+class GossipNode extends Node {
+  private var count: Int = 0
+  private def sendLoopMessage() = { self ! Looping }
+  private def spreadMessage() =
+    if(count>0) randomNeighbor ! Rumor
   def act() {
-    loop {
+    loopWhile(count<10) {
+      sendLoopMessage()
+      spreadMessage()
       react {
-        case (i: Int, n: Array[Node]) =>
-          id = i; neighbors = n
-          rand.setSeed(System.currentTimeMillis() ^ neighbors.hashCode toLong)
-        case "rumor" => count += 1
-          println(""+id+": "+count)
-          if(count>=10) exit
-          nodeSender.start
+        case (i: Int, n: Array[Node]) => init(i, n)
+        case Rumor => count += 1
+        case Looping => sendLoopMessage()
+        case Stop => exit()
       }
     }
   }
 }
 
 abstract class NetworkBuilder(val numNodes: Int) extends Actor {
-  val nodes = Array.fill(numNodes)(new Node)
+  val nodes = Array.fill(numNodes)(new GossipNode)
   val rand = new Random(System.currentTimeMillis())
   def randomNode: Node = nodes(rand.nextInt(nodes.length))
   def neighbors(x: Int): Array[Node]    // implemented by different topologies
   def act() {
     nodes foreach(_ start)
     Array.range(0, numNodes) foreach (x => (nodes(x) ! (x,neighbors(x))))
-    randomNode ! "rumor"
+    randomNode ! Rumor
   }
 }
 
@@ -63,6 +73,8 @@ class ImperfectGrid(rows: Int, cols: Int) extends Grid(rows, cols) {
   override def neighbors(x: Int): Array[Node] = super.neighbors(x) :+ randomNode
 }
 
-object project2 extends App {
-  new Grid(3,3) start
+object project2 {
+  def main(args: Array[String]) {
+    new Line(100) start
+  }
 }
