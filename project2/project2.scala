@@ -1,52 +1,109 @@
 import scala.actors._
 import scala.actors.Actor._
+import scala.math.abs
 import scala.util.Random
 
 sealed trait Message
 case object Looping extends Message
 case object Rumor extends Message
 case object Stop extends Message
+case class Remove(a: Actor) extends Message   // when a neighbor exits, it must be removed from the neighbor list
+case class Sum(s: Double) extends Message
 case class PartialSum(val s: Double, val w: Double) extends Message
 
 abstract class Node extends Actor {
-  private var id: Int = 0
-  private var neighbors: Array[Node] = null
-  private val rand = new Random
-  def randomNeighbor: Node = neighbors(rand.nextInt(neighbors.length))
-  def init(i: Int, n: Array[Node]) = {
-    id = i; neighbors = n
+  var id: Int = 0
+  val rand = new Random
+  var count: Int = 0
+  var neighbors: Array[Node] = Array.empty
+  var boss: NetworkBuilder = null
+  def randomNeighbor: Node = 
+    if (neighbors isEmpty) this  // in case all neighbors exited
+    else neighbors(rand.nextInt(neighbors.length))
+  def init(i: Int, n: Array[Node], b: NetworkBuilder) = {
+    id = i; neighbors = n; boss = b;
     rand.setSeed(System.currentTimeMillis() ^ neighbors.hashCode toLong)
   }
+  override def exit() = {
+    neighbors foreach(_ ! Remove(self))
+    super.exit()
+  }
+  def removeNeighbor(a: Actor) = neighbors filter(_ != a)  // remove exited neighbors from neighbor list
 }
 
 class GossipNode extends Node {
-  private var count: Int = 0
+  private val maxCount = 10
   private def sendLoopMessage() = { self ! Looping }
   private def spreadMessage() =
     if(count>0) randomNeighbor ! Rumor
   def act() {
-    loopWhile(count<10) {
+    loopWhile(count<maxCount) {
       sendLoopMessage()
       spreadMessage()
       react {
-        case (i: Int, n: Array[Node]) => init(i, n)
+        case (i: Int, n: Array[Node], b: NetworkBuilder) => init(i, n, b)
         case Rumor => count += 1
         case Looping => sendLoopMessage()
         case Stop => exit()
+        case Remove(a) => removeNeighbor(a)
+      }
+    }
+  }
+}
+
+class PushSumNode extends Node {
+  private var s: Double = 0
+  private var w: Double = 1
+  private val nConv: Int = 5    // n convergence tests
+  private val converging: Array[Boolean] = Array.fill(nConv)(false)
+  override def init(i: Int, n: Array[Node], b: NetworkBuilder) =
+    { super.init(i, n, b); s = i }
+  private def spreadMessage() = {
+    randomNeighbor ! PartialSum(s/2.0, w/2.0)
+    s /= 2.0; w /= 2.0
+  }
+  def act() {
+    loop {
+      react {
+        case (i: Int, n: Array[Node], b: NetworkBuilder) => init(i, n, b)
+        case Rumor => spreadMessage()
+        case PartialSum(ss, ww) => count += 1
+          converging(count%nConv) = abs(s/w-(s+ss)/(w+ww)) < 1e-10
+          s += ss; w += ww; 
+          if(converging forall(_ == true)) exit(Sum(s/w))
+          else spreadMessage()
+        case Stop => exit()
+        case Remove(a) => removeNeighbor(a)
       }
     }
   }
 }
 
 abstract class NetworkBuilder(val numNodes: Int) extends Actor {
-  val nodes = Array.fill(numNodes)(new GossipNode)
+  private var count = 0
+  val nodes = Array.fill(numNodes)(new PushSumNode)
   val rand = new Random(System.currentTimeMillis())
   def randomNode: Node = nodes(rand.nextInt(nodes.length))
   def neighbors(x: Int): Array[Node]    // implemented by different topologies
   def act() {
-    nodes foreach(_ start)
-    Array.range(0, numNodes) foreach (x => (nodes(x) ! (x,neighbors(x))))
+    trapExit = true
+    nodes foreach(x => {link(x); x start})
+    Array.range(0, numNodes) foreach (x => (nodes(x) ! (x,neighbors(x),self)))
     randomNode ! Rumor
+    val b = System.currentTimeMillis
+    loop {
+      react {
+        case Exit(_,Sum(s)) =>
+          println("sum = "+(numNodes*s)+"\nTime = "+(System.currentTimeMillis-b)+" ms.")
+          nodes foreach(_ ! Stop)
+          exit()
+        case Exit(_,_) => count+=1
+          if(count>=numNodes) {
+            println((System.currentTimeMillis-b)+" ms")
+            exit()
+          }
+      }
+    }
   }
 }
 
@@ -75,6 +132,7 @@ class ImperfectGrid(rows: Int, cols: Int) extends Grid(rows, cols) {
 
 object project2 {
   def main(args: Array[String]) {
-    new Line(100) start
+    (new ImperfectGrid(100,100)).start
+    //println(Array.range(0, 100).reduceLeft(_+_))
   }
 }
