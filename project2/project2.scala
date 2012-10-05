@@ -28,9 +28,7 @@ abstract class Node extends Actor {
     neighbors foreach(_ ! (Remove, self))
     super.exit()
   }
-  def removeNeighbor(a: Node) {
-    neighbors = neighbors filter(_.id != a.id)
-  }
+  def removeNeighbor(a: Node) = (neighbors = neighbors filter(_.id != a.id))
 }
 
 class GossipNode extends Node {
@@ -45,7 +43,6 @@ class GossipNode extends Node {
       react {
         case (i: Int, n: Array[Node], b: NetworkBuilder) => init(i, n, b)
         case Rumor => count += 1
-          if (count==maxCount)println(id+": "+count)
         case Looping => sendLoopMessage()
         case Stop => exit()
         case (Remove, a: Node) => removeNeighbor(a)
@@ -82,9 +79,9 @@ class PushSumNode extends Node {
   }
 }
 
-abstract class NetworkBuilder(val numNodes: Int) extends Actor {
+abstract class NetworkBuilder(val numNodes: Int, val algorithm: () => Node) extends Actor {
   private var count = 0
-  val nodes = Array.fill(numNodes)(new GossipNode)
+  val nodes = Array.fill(numNodes)(algorithm())
   val rand = new Random(System.currentTimeMillis())
   def randomNode: Node = nodes(rand.nextInt(nodes.length))
   def neighbors(x: Int): Array[Node]    // implemented by different topologies
@@ -101,7 +98,6 @@ abstract class NetworkBuilder(val numNodes: Int) extends Actor {
           nodes foreach(_ ! Stop)
           exit()
         case Exit(_,_) => count+=1
-        //println("count = "+count)
           if(count>=numNodes) {
             println((System.currentTimeMillis-b)+" ms")
             exit()
@@ -111,18 +107,18 @@ abstract class NetworkBuilder(val numNodes: Int) extends Actor {
   }
 }
 
-class Full(numNodes: Int) extends NetworkBuilder(numNodes) {
+class Full(numNodes: Int, algorithm: () => Node) extends NetworkBuilder(numNodes, algorithm) {
   def neighbors(x: Int): Array[Node] =
     Array.range(0, numNodes) filter (_!=x) map (nodes(_))
 }
 
-class Line(numNodes: Int) extends NetworkBuilder(numNodes) {
+class Line(numNodes: Int, algorithm: () => Node) extends NetworkBuilder(numNodes, algorithm) {
   private def inRange(x: Int): Boolean = x>=0 && x<numNodes
   def neighbors(x: Int): Array[Node] =
     Array(x-1, x+1) filter (inRange(_)) map (nodes(_))
 }
 
-class Grid(val rows: Int, val cols: Int) extends NetworkBuilder(rows*cols) {
+class Grid(val rows: Int, val cols: Int, algorithm: () => Node) extends NetworkBuilder(rows*cols, algorithm) {
   private def at(r: Int, c: Int): Node = nodes(r*cols+c)
   private def inRange(r: Int, c: Int): Boolean = r>=0 && c>=0 && r<rows && c<cols
   private def neighbors(r: Int, c: Int): Array[Node] =
@@ -130,19 +126,36 @@ class Grid(val rows: Int, val cols: Int) extends NetworkBuilder(rows*cols) {
   def neighbors(x: Int): Array[Node] = neighbors(x/cols, x%cols)
 }
 
-class ImperfectGrid(rows: Int, cols: Int) extends Grid(rows, cols) {
-  val swapper = Random.shuffle(List.range(0, numNodes)) toArray   // match
-  def partner(x: Int) = nodes(swapper(x%2 match {
-    case 0 if (x+1<numNodes) => x+1    // even => match next
-    case 1 => x-1                      // odd => match previous
-    case _ => x                        // no match
-  }))
-  override def neighbors(x: Int): Array[Node] = super.neighbors(x) :+ partner(x)
+class ImperfectGrid(rows: Int, cols: Int, algorithm: () => Node) extends Grid(rows, cols, algorithm) {
+  private val groups = Random.shuffle(List.range(0, numNodes)).splitAt(numNodes/2)
+  private val partnerMap = (groups._1 zip groups._2).toMap ++ (groups._2 zip groups._1).toMap
+  private def partner(x: Int) = if (partnerMap contains x) partnerMap(x) else x
+  override def neighbors(x: Int): Array[Node] = super.neighbors(x) :+ nodes(partner(x))
 }
 
 object project2 {
   def main(args: Array[String]) {
-    (new ImperfectGrid(10,10)).start
-    //println(Array.range(0, 100).reduceLeft(_+_))
+    val algorithms = Map("gossip"->(()=>new GossipNode),
+                         "pushsum"->(()=>new PushSumNode))
+    try {
+      val numNodes = args(0) toInt
+      val rows = List.range(math.sqrt(numNodes) toInt, 0, -1).find(numNodes%_==0).get
+      val cols = numNodes/rows
+      println("rows="+rows+"; cols="+cols)
+      val algorithm = algorithms(args(2))
+      val network = args(1) match {
+        case "full" => new Full(numNodes, algorithm)
+        case "line" => new Line(numNodes, algorithm)
+        case "grid" => new Grid(rows, cols, algorithm)
+        case "imperfectgrid" => new ImperfectGrid(rows, cols, algorithm)
+      }
+      network start
+    } catch {
+      case _ =>
+        println("Usage: scala project2 numNodes topology algorithm")
+        println(" -numNodes\t# of nodes in the network")
+        println(" -topology\tfull, line, grid, imperfectgrid")
+        println(" -algorithm\t"+algorithms.keys.mkString(", "))
+    }
   }
 }
