@@ -99,7 +99,7 @@ abstract class NetworkBuilder(val numNodes: Int, val algorithm: () => Node) exte
           exit()
         case Exit(_,_) => count+=1
           if(count>=numNodes) {
-            println((System.currentTimeMillis-b)+" ms")
+            println("Time = "+(System.currentTimeMillis-b)+" ms")
             exit()
           }
       }
@@ -141,7 +141,6 @@ object project2 {
       val numNodes = args(0) toInt
       val rows = List.range(math.sqrt(numNodes) toInt, 0, -1).find(numNodes%_==0).get
       val cols = numNodes/rows
-      println("rows="+rows+"; cols="+cols)
       val algorithm = algorithms(args(2))
       val network = args(1) match {
         case "full" => new Full(numNodes, algorithm)

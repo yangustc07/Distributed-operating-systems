@@ -18,7 +18,7 @@ abstract class Node extends Actor {
   var neighbors: Array[Node] = Array.empty
   var boss: NetworkBuilder = null
   def randomNeighbor: Node = 
-    if (neighbors isEmpty) this  // in case all neighbors exited
+    if (neighbors.isEmpty) this   //in case all neighbors exited
     else neighbors(rand.nextInt(neighbors.length))
   def init(i: Int, n: Array[Node], b: NetworkBuilder) = {
     id = i; neighbors = n; boss = b;
@@ -35,7 +35,7 @@ class GossipNode extends Node {
   private val maxCount = 10
   private def sendLoopMessage() = { self ! Looping }
   private def spreadMessage() =
-    if(count>0) randomNeighbor ! Rumor
+    if(count>0 && !neighbors.isEmpty) randomNeighbor ! Rumor
   def act() {
     loopWhile(count<maxCount) {
       sendLoopMessage()
@@ -58,21 +58,24 @@ class PushSumNode extends Node {
   private val converging: Array[Boolean] = Array.fill(nConv)(false)
   override def init(i: Int, n: Array[Node], b: NetworkBuilder) =
     { super.init(i, n, b); s = i }
-  private def spreadMessage() = {
+  private def spreadMessage() = if (!neighbors.isEmpty) {
     randomNeighbor ! PartialSum(s/2.0, w/2.0)
     s /= 2.0; w /= 2.0
+  }
+  private def process(ss: Double, ww: Double) {
+    count += 1
+    converging(count%nConv) = abs(s/w-(s+ss)/(w+ww)) < 1e-10
+    s += ss; w += ww; 
+    if(converging forall(_ == true)) exit(Sum(s/w))
+    else spreadMessage()
   }
   def act() {
     loop {
       react {
         case (i: Int, n: Array[Node], b: NetworkBuilder) => init(i, n, b)
         case Rumor => spreadMessage()
-        case PartialSum(ss, ww) => count += 1
-          converging(count%nConv) = abs(s/w-(s+ss)/(w+ww)) < 1e-10
-          s += ss; w += ww; 
-          if(converging forall(_ == true)) exit(Sum(s/w))
-          else spreadMessage()
-        case Stop => exit()
+        case PartialSum(ss, ww) => process(ss, ww)
+        case Stop => spreadMessage(); exit()
         case (Remove, a: Node) => removeNeighbor(a)
       }
     }
@@ -99,7 +102,7 @@ abstract class NetworkBuilder(val numNodes: Int, val algorithm: () => Node) exte
           exit()
         case Exit(_,_) => count+=1
           if(count>=numNodes) {
-            println((System.currentTimeMillis-b)+" ms")
+            println("Time = "+(System.currentTimeMillis-b)+" ms")
             exit()
           }
       }
@@ -108,8 +111,25 @@ abstract class NetworkBuilder(val numNodes: Int, val algorithm: () => Node) exte
 }
 
 trait FailureModel extends NetworkBuilder {
-  private val ActorKiller = actor {
-    
+  private val killer = self.link {
+    def wait() {
+      val k = self
+      actor { Thread.sleep(250); k ! Stop }
+    }
+    wait()
+    self.loop {
+      self.react {
+        case Stop =>
+          randomNode ! Stop
+          wait()
+        case Exit(_,_) => exit()
+      }
+    }
+  }
+  // why link and exitTrap doesn't work?
+  override def exit() = {
+    killer ! Exit(self, 'normal)
+    super.exit()
   }
 }
 
@@ -139,7 +159,7 @@ class ImperfectGrid(rows: Int, cols: Int, algorithm: () => Node) extends Grid(ro
   override def neighbors(x: Int): Array[Node] = super.neighbors(x) :+ nodes(partner(x))
 }
 
-object project2 {
+object project2Bonus {
   def main(args: Array[String]) {
     val algorithms = Map("gossip"->(()=>new GossipNode),
                          "pushsum"->(()=>new PushSumNode))
@@ -147,17 +167,17 @@ object project2 {
       val numNodes = args(0) toInt
       val rows = List.range(math.sqrt(numNodes) toInt, 0, -1).find(numNodes%_==0).get
       val cols = numNodes/rows
-      println("rows="+rows+"; cols="+cols)
       val algorithm = algorithms(args(2))
+      val killInterval = 100
       val network = args(1) match {
-        case "full" => new Full(numNodes, algorithm)
-        case "line" => new Line(numNodes, algorithm)
-        case "grid" => new Grid(rows, cols, algorithm)
-        case "imperfectgrid" => new ImperfectGrid(rows, cols, algorithm)
+        case "full" => new Full(numNodes, algorithm) with FailureModel
+        case "line" => new Line(numNodes, algorithm) with FailureModel
+        case "grid" => new Grid(rows, cols, algorithm) with FailureModel
+        case "imperfectgrid" => new ImperfectGrid(rows, cols, algorithm) with FailureModel
       }
       network start
     } catch {
-      case _ =>
+      case me: MatchError =>
         println("Usage: scala project2 numNodes topology algorithm")
         println(" -numNodes\t# of nodes in the network")
         println(" -topology\tfull, line, grid, imperfectgrid")
