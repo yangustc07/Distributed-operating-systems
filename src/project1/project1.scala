@@ -1,3 +1,5 @@
+package project1
+
 import scala.math._
 import scala.actors._
 import scala.actors.Actor._

@@ -1,3 +1,6 @@
+package project1
+package bonus
+
 import scala.actors._
 import scala.actors.Actor._
 import scala.actors.remote._
