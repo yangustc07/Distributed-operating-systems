@@ -161,7 +161,7 @@ object PastryBoss extends PastryNode {
   override def act = loop(react(work orElse bossWork))
 }
 
-object Node {
+object project3 {
   def main(args: Array[String]) {
     val (numNodes, numRequests) = try {
       (args(0).toInt, args(1).toInt)
