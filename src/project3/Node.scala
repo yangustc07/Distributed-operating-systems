@@ -153,7 +153,7 @@ object PastryBoss extends PastryNode {
       }
     case Nhops(n) => count += 1; sum += n
       if (count>=numRequests) {
-        println(sum.toDouble/numNodes.toDouble)
+        println(sum.toDouble/count.toDouble)
         participants.foreach(_ ! Exit)
         exit
       }
