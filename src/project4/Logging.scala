@@ -21,7 +21,7 @@ trait Logging extends Actor {
     using (new FileWriter(filename, append)) (_.write(data))
   private def writeLog(data: String) = getOrElse(x => writeToFile(x.logfileName, data), ())
   private def senderId = getOrElse(_.id, 0)
-  private def senderClock = getOrElse(_.lamportClock, 0)
+  def senderClock = getOrElse(_.lamportClock, 0)
 
   private var lamportClock = 0
   private def advanceClock(x: Int) { lamportClock = (lamportClock max x) +1 }
@@ -31,7 +31,7 @@ trait Logging extends Actor {
     super.react {
       case withClock(msg: Any, fromId: Int, fromClock: Int) =>   // unwrap
         advanceClock(fromClock)
-        writeLog("At [" +lamportClock+ "]: (" +id+ ") recieved message from (" +fromId+ "): " +msg+ "\n")
+        writeLog("[" +lamportClock+ "]: (" +id+ ") <- (" +fromId+ "): " +msg+ "\n")
         handler.apply(msg)
       case _ => throw new RuntimeException   // should not happen since ! is overridden
     }
@@ -40,7 +40,7 @@ trait Logging extends Actor {
   override def !(msg: Any) = {
     advanceSenderClock()
     val (fromId, fromClock) = (senderId, senderClock)
-    writeLog("At [" +fromClock+ "]: (" +fromId+ ") sent message to (" +id+ "): " +msg+ "\n")
+    writeLog("[" +fromClock+ "]: (" +fromId+ ") -> (" +id+ "): " +msg+ "\n")
     super.!(withClock(msg, fromId, fromClock))   // wrap message with sender id and clock
   }
 }
