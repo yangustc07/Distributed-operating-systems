@@ -41,7 +41,7 @@ abstract class Node extends Actor with Logging {
 
 class GossipNode extends Node {
   private def rep[A](n: Int)(f: => A) { if (n > 0) { f; rep(n-1)(f) } }
-  private val maxCount = 10
+  private val maxCount = 20
   private def sendLoopMessage() = { self ! Looping }
   private def spreadMessage() =
     if(count>0) randomNeighbor ! Rumor
@@ -55,7 +55,7 @@ class GossipNode extends Node {
         case Rumor => count += 1
         case BadRumor => 
           badCount += 1
-          if (badCount > 2) { println("alarm from "+id+" at "+senderClock); boss ! Alarm(id) }
+          if (badCount > 1) { boss ! Alarm(id) }
           else { rep(2)(randomNeighbor ! BadRumor) }
         case Looping => ;
         case Stop => exit()
@@ -76,7 +76,7 @@ abstract class NetworkBuilder(val numNodes: Int) extends Actor {
     nodes foreach(x => {link(x); x start})
     Array.range(0, numNodes) foreach (x => (nodes(x) ! (neighbors(x),self)))
     nodes.head ! Rumor
-    nodes(60) ! BadRumor
+    nodes(70) ! BadRumor
     val b = System.currentTimeMillis
     loop {
       react {

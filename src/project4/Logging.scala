@@ -9,7 +9,7 @@ import java.io._
 
 trait Logging extends Actor {
   val id = Logging.inc   // used to identify actors in log
-  val logfileName = id +".out"
+  val logfileName = id +".log"
   writeToFile(logfileName, "", false)  // erase old logs
   
   // utility methods used to maintain logs and clocks

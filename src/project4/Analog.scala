@@ -1,10 +1,14 @@
 package project4
 
+import java.io.FileWriter
+
 import scala.io.Source
 import scala.collection.mutable.ListBuffer
 
 import org.scalaquery.session._
 import org.scalaquery.session.Database.threadLocalSession
+
+import org.scalaquery.simple.{StaticQuery => Q}
 
 // Import the query language
 import org.scalaquery.ql._
@@ -20,7 +24,7 @@ import org.scalaquery.ql.extended.{ExtendedTable => Table}
 trait Analog {
   private def splitTrim(str: String, delimiter: String) = str.split(delimiter).map(_ trim).toList
   private def trimtoInt(str: String) = str.stripPrefix("(").stripPrefix("[").stripSuffix(")").stripSuffix("]") toInt
-  private val dirFiles = new java.io.File(".").listFiles.filter(_.getName.endsWith(".out"))
+  private val dirFiles = new java.io.File(".").listFiles.filter(_.getName.endsWith(".log"))
   
   object Receiving {
     def unapply(str: String): Option[(Int, Int, Int, String)] = {
@@ -91,17 +95,22 @@ trait Db {
 
 class Detector(from: Int) extends Analog with Db {
     private val dbName = "logs"+from
-	
+    private val mscFile = "msg.msc"
+    private def using[A <: {def close(): Unit}, B](param: A)(f: A => B): B =
+      try { f(param) } finally { param.close() }
+    private def writeMsc(data: String, append: Boolean = true) =
+      using (new FileWriter(mscFile, append)) (_.write(data))
+
     private def createDb() {
       (sendLogs.ddl ++ receiveLogs.ddl).create
       val (sendTuples, receiveTuples) = tuples
       sendLogs.insertAll(sendTuples: _*)
       receiveLogs.insertAll(receiveTuples: _*)
     }
-    
+
     private def dropDb() { (sendLogs.ddl ++ receiveLogs.ddl).drop }
-    private def genMsg(sender: Int, receiver: Int) = sender+"=>>"+receiver+" [ label = \"message\" ];"
-    
+    private def genMsg(sender: Int, receiver: Int) = sender+"=>>"+receiver+" [ label = \"message\" ];\n"
+
     @annotation.tailrec
     private def tracerec(traceNode: Int, traceTime: Int, resultList: List[(Int, Int)] = List()): List[(Int, Int)] = {
       if (traceNode<=0) resultList
@@ -113,7 +122,9 @@ class Detector(from: Int) extends Analog with Db {
 
 	    previousSenders.list match {
 	      case Nil => resultList
-	      case (sender, time) :: rest => tracerec(sender, time, (sender, traceNode) :: resultList)
+	      case (sender, time) :: rest =>
+	        if (sender==0) { println("Malicious node: " +traceNode); resultList }
+	        else tracerec(sender, time, (sender, traceNode) :: resultList)
 	    }
       }
     }
@@ -127,15 +138,40 @@ class Detector(from: Int) extends Analog with Db {
       sends foreach { case (s,r) => entities+=(s,r) }
       (sends.list, entities)
     }
-    
+
+    private def failures = {
+      val sql2 = 
+"""SELECT DISTINCT S1.receiver
+   FROM sendLogs S1
+   WHERE NOT EXISTS (
+     SELECT *
+     FROM sendLogs S2
+     WHERE S2.sender = S1.receiver
+     AND S2.time > S1.time
+         UNION
+     SELECT *
+     FROM receiveLogs R2
+     WHERE R2.receiver = S1.receiver
+     AND R2.time > S1.time
+   )
+   ORDER BY S1.receiver ASC"""
+      val q = Q[Int] + sql2
+      q foreach { println }
+    }
+
     def trace() = Database.forURL("jdbc:sqlite:"+dbName+".db", driver = "org.sqlite.JDBC") withSession {
       createDb()
+      failures
+      writeMsc("""msc {
+  hscale = "1";
+""", false)
       val (allMessages, entities) = allMsgs
-      println(entities.mkString(",")+";")
-      allMessages foreach { case (s,r) => println (genMsg(s,r)) }
-      println("---;")
+      writeMsc(entities.mkString(",")+";")
+      allMessages foreach { case (s,r) => writeMsc (genMsg(s,r)) }
+      writeMsc("---;")
       val traceLog = tracerec(from, Int.MaxValue)
-      traceLog foreach { case (s,r) => println (genMsg(s,r))}
+      traceLog foreach { case (s,r) => writeMsc (genMsg(s,r))}
+      writeMsc("\n}\n")
       //dropDb()
     }
 }
